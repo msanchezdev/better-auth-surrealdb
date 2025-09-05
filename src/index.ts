@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import {
   type AdapterDebugLogs,
   type CleanedWhere,
@@ -16,7 +15,6 @@ import Surreal, {
   surql,
   Table,
 } from "surrealdb";
-import { assert } from "vitest";
 
 interface SurrealAdapterOptions extends ConnectOptions {
   engines?: Engines;
@@ -215,8 +213,21 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
         for (const tableKey in tables) {
           const table = tables[tableKey];
           if (!table) continue;
-
-          code.push(`DEFINE TABLE ${escapeIdent(table.modelName)} SCHEMALESS;`);
+          // Build table definition with permissions embedded
+          const available = new Set(
+            Object.values(tables)
+              .filter((t: any) => !!t)
+              .map((t: any) => t.modelName),
+          );
+          const permissions = generatePermissions(
+            table.modelName,
+            available,
+          );
+          const tableDef =
+            `DEFINE TABLE ${escapeIdent(table.modelName)} SCHEMALESS` +
+            (permissions ? `\n  ${permissions}` : "") +
+            ";";
+          code.push(tableDef);
 
           for (const fieldKey in table.fields) {
             const field = table.fields[fieldKey];
@@ -242,11 +253,13 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
             )[field.type];
 
             if (field.references) {
-              type = `record<${escapeIdent(field.references.model)}>`;
+              // Do not escape model name inside record<> type to avoid invalid ⟨ ⟩ wrappers
+              type = `record<${field.references.model}>`;
             }
 
+            // Wrap optional types without escaping the composed generic type
             if (!field.required) {
-              type = `option<${escapeIdent(type)}>`;
+              type = `option<${type}>`;
             }
 
             code.push(
@@ -259,7 +272,6 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
               );
             }
           }
-
           code.push(``);
         }
 
@@ -427,12 +439,23 @@ export function generateSurrealQL<T>(
     for (let i = 0; i < dataKeys.length; i++) {
       const key = dataKeys[i] || "";
       const field = context.getFieldName({ model: request.model, field: key });
+      const attributes = context.getFieldAttributes({
+        model: request.model,
+        field: key,
+      });
       const value = data[key];
       if (i > 0) {
         query.append([`, `]);
       }
 
-      query.append([`${escapeIdent(field)} = `], value);
+      if (attributes?.references) {
+        query.append(
+          [`${escapeIdent(field)} = `],
+          new RecordId(attributes.references.model, value as string),
+        );
+      } else {
+        query.append([`${escapeIdent(field)} = `], value);
+      }
     }
   } else if ("select" in request && request.select) {
     query.append([
@@ -448,7 +471,10 @@ export function generateSurrealQL<T>(
     let first = true;
     for (const condition of where) {
       const field = condition.field;
-      const attributes = fixedGetFieldAttributes(context, request.model, field);
+      const attributes = context.getFieldAttributes({
+        model: request.model,
+        field: condition.field,
+      });
       const value = surrealizeValue(condition.value, attributes);
 
       if (first) {
@@ -512,7 +538,7 @@ export function generateSurrealQL<T>(
   }
 
   if ("limit" in request && request.limit) {
-    query.append` LIMIT BY ${request.limit}`;
+    query.append` LIMIT ${request.limit}`;
   }
 
   if ("offset" in request && request.offset) {
@@ -552,29 +578,212 @@ function surrealizeValue(value: unknown, field: FieldAttribute<FieldType>) {
   return value;
 }
 
-/**
- * There seems to be a bug in the getDefaultFieldName method (used by
- *  getFieldAttributes) where it returns the custom field name instead of
- *  the default field name.
- *
- * const attributes = context.getFieldAttributes({
- *   model: request.model,
- *   field: condition.field,
- * });
- *
- * This is a workaround to get the correct field name.
- */
-function fixedGetFieldAttributes(
-  context: AdapterContext,
-  model: string,
-  field: string,
-) {
-  const defaultModelName = context.getDefaultModelName(model);
-  const entry = Object.entries(
-    context.schema[defaultModelName]?.fields || {},
-  ).find(([, value]) => value.fieldName === field);
+type RoleSets = {
+  orgAdmin: string[];
+  orgOwner: string[];
+  workspaceAdmin: string[];
+  workspaceOwner: string[];
+};
 
-  // This is not right but just to match the types of the getFieldAttributes method.
-  // biome-ignore lint/style/noNonNullAssertion: /\
-  return entry?.[1]!;
+function generatePermissions(
+  tableName: string,
+  availableTables?: Set<string>,
+  roleSets?: RoleSets,
+): string | null {
+  const has = (name: string) => !availableTables || availableTables.has(name);
+  const lines: string[] = [];
+  const inList = (roles: string[]) =>
+    `[${roles.map((r) => `'${String(r).replace(/'/g, "\\'")}'`).join(", ")}]`;
+  const ORG_ADMIN = roleSets?.orgAdmin || ["owner", "admin"];
+  const ORG_OWNER = roleSets?.orgOwner || ["owner"];
+  const WS_ADMIN = roleSets?.workspaceAdmin || ["owner", "admin"];
+  const WS_OWNER = roleSets?.workspaceOwner || ["owner"];
+  switch (tableName) {
+    case "user":
+      // Users can select/update their own record, create is handled by Better Auth adapter
+      return `PERMISSIONS FOR select, update WHERE id = $auth.id`;
+    case "session":
+      return `PERMISSIONS FOR select WHERE userId = $auth.id FOR create, update, delete WHERE userId = $auth.id`;
+    case "account":
+      return `PERMISSIONS FOR select WHERE userId = $auth.id FOR create, update, delete WHERE userId = $auth.id`;
+    case "verification":
+      return `PERMISSIONS FOR select WHERE identifier = $auth.email FOR create, update, delete WHERE identifier = $auth.email`;
+    case "passkey":
+      return `PERMISSIONS FOR select WHERE userId = $auth.id FOR create, update, delete WHERE userId = $auth.id`;
+    case "team": {
+      lines.push("PERMISSIONS");
+      const teamSelect: string[] = [];
+      if (has("teamMember")) {
+        teamSelect.push(
+          "  FOR select WHERE id IN (SELECT teamId FROM teamMember WHERE userId = $auth.id)",
+        );
+      }
+      if (has("member")) {
+        const cond =
+          `organizationId IN (SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)})`;
+        if (teamSelect.length > 0) {
+          teamSelect.push(`    OR ${cond}`);
+        } else {
+          teamSelect.push(`  FOR select WHERE ${cond}`);
+        }
+        lines.push(...teamSelect);
+        lines.push(
+          `  FOR create WHERE ${cond}`,
+          `  FOR update, delete WHERE ${cond}`,
+        );
+      } else if (teamSelect.length > 0) {
+        lines.push(...teamSelect);
+      }
+      return lines.length > 1 ? lines.join("\n") : null;
+    }
+    case "teamMember": {
+      lines.push("PERMISSIONS");
+      const canSeeOwnTeam = has("teamMember");
+      const hasTeamAndMember = has("team") && has("member");
+      if (canSeeOwnTeam) {
+        lines.push(
+          "  FOR select WHERE teamId IN (SELECT teamId FROM teamMember WHERE userId = $auth.id)",
+        );
+      }
+      if (hasTeamAndMember) {
+        const cond =
+          `teamId IN (SELECT id FROM team WHERE organizationId IN (SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)}))`;
+        if (canSeeOwnTeam) {
+          lines.push(`    OR ${cond}`);
+        } else {
+          lines.push(`  FOR select WHERE ${cond}`);
+        }
+        lines.push(`  FOR create, update, delete WHERE ${cond}`);
+      }
+      return lines.length > 1 ? lines.join("\n") : null;
+    }
+    case "organization": {
+      lines.push("PERMISSIONS");
+      if (has("member")) {
+        lines.push(
+          "  FOR select WHERE id IN (SELECT organizationId FROM member WHERE userId = $auth.id)",
+          `  FOR update, delete WHERE id IN (SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)})`,
+        );
+      }
+      
+  // Allow authenticated creation even if member table isn't present
+  lines.push("  FOR create WHERE $auth.id != null");
+      return lines.length > 1 ? lines.join("\n") : null;
+    }
+    case "member": {
+      lines.push("PERMISSIONS");
+      lines.push("  FOR select WHERE userId = $auth.id");
+      if (has("member")) {
+        const cond =
+          `organizationId IN (SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)})`;
+        lines.push(`    OR ${cond}`, `  FOR create, update, delete WHERE ${cond}`);
+      }
+      return lines.length > 1 ? lines.join("\n") : null;
+    }
+    case "invitation": {
+      lines.push("PERMISSIONS");
+      lines.push("  FOR select WHERE email = $auth.email");
+      if (has("member")) {
+        const cond =
+          `organizationId IN (SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)})`;
+        lines.push(`    OR ${cond}`, `  FOR create, update, delete WHERE ${cond}`);
+      }
+      return lines.length > 1 ? lines.join("\n") : null;
+    }
+    case "workspace": {
+      lines.push("PERMISSIONS");
+      const hasMember = has("member");
+      const hasWsMember = has("workspaceMember");
+      // SELECT visibility
+      if (hasMember) {
+        lines.push(
+          "  FOR select WHERE organizationId IN (SELECT organizationId FROM member WHERE userId = $auth.id)",
+        );
+      }
+      if (hasWsMember) {
+        if (hasMember) {
+          lines.push(
+            "    OR id IN (SELECT workspaceId FROM workspaceMember WHERE userId = $auth.id)",
+          );
+        } else {
+          lines.push(
+            "  FOR select WHERE id IN (SELECT workspaceId FROM workspaceMember WHERE userId = $auth.id)",
+          );
+        }
+      }
+      // CREATE/UPDATE/DELETE, tied to org roles and workspace roles if tables exist
+      if (hasMember) {
+        lines.push(
+          `  FOR create WHERE organizationId IN (SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)})`,
+          `  FOR update WHERE organizationId IN (SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)})`,
+        );
+      }
+      if (hasWsMember) {
+        lines.push(
+          `    OR id IN (SELECT workspaceId FROM workspaceMember WHERE userId = $auth.id AND role IN ${inList(WS_ADMIN)})`,
+        );
+      }
+      if (hasMember) {
+        lines.push(
+          `  FOR delete WHERE organizationId IN (SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)})`,
+        );
+      }
+      if (hasWsMember) {
+        lines.push(
+          `    OR id IN (SELECT workspaceId FROM workspaceMember WHERE userId = $auth.id AND role IN ${inList(WS_OWNER)})`,
+        );
+      }
+      return lines.length > 1 ? lines.join("\n") : null;
+    }
+    case "workspaceMember": {
+      lines.push("PERMISSIONS");
+      if (has("workspaceMember")) {
+        lines.push(
+          "  FOR select WHERE workspaceId IN (SELECT workspaceId FROM workspaceMember WHERE userId = $auth.id)",
+        );
+      }
+      const canOrgManage = has("workspace") && has("member");
+      if (canOrgManage) {
+        lines.push(
+          "  FOR create, update, delete WHERE workspaceId IN (",
+          "      SELECT id FROM workspace WHERE organizationId IN (",
+          `        SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)}`,
+          "      )",
+          "    )",
+        );
+      }
+      if (has("workspaceMember")) {
+        lines.push(
+          `    OR workspaceId IN (SELECT workspaceId FROM workspaceMember WHERE userId = $auth.id AND role IN ${inList(WS_ADMIN)})`,
+        );
+      }
+      return lines.length > 1 ? lines.join("\n") : null;
+    }
+    case "workspaceTeamMember": {
+      lines.push("PERMISSIONS");
+      if (has("workspaceMember")) {
+        lines.push(
+          "  FOR select WHERE workspaceId IN (SELECT workspaceId FROM workspaceMember WHERE userId = $auth.id)",
+        );
+      }
+      const canOrgManage = has("workspace") && has("member");
+      if (canOrgManage) {
+        lines.push(
+          "  FOR create, update, delete WHERE workspaceId IN (",
+          "      SELECT id FROM workspace WHERE organizationId IN (",
+          `        SELECT organizationId FROM member WHERE userId = $auth.id AND role IN ${inList(ORG_ADMIN)}`,
+          "      )",
+          "    )",
+        );
+      }
+      if (has("workspaceMember")) {
+        lines.push(
+          `    OR workspaceId IN (SELECT workspaceId FROM workspaceMember WHERE userId = $auth.id AND role IN ${inList(WS_ADMIN)})`,
+        );
+      }
+      return lines.length > 1 ? lines.join("\n") : null;
+    }
+    default:
+      return null;
+  }
 }
