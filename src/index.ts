@@ -84,7 +84,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        console.log(new TextDecoder().decode(query.query.encoded))
+        console.log(new TextDecoder().decode(query.query.encoded));
         const [result] = await db.query<number[]>(query);
         return result || 0;
       },
@@ -349,8 +349,6 @@ export function generateSurrealQL<T>(
   request: AdapterRequestParams<T>,
   context: AdapterContext,
 ) {
-  try {
-
   const query = surql``;
   const where = [] as CleanedWhere[];
   const ids = [] as RecordId[];
@@ -388,7 +386,10 @@ export function generateSurrealQL<T>(
     const dataKeys = Object.keys(data);
     for (let i = 0; i < dataKeys.length; i++) {
       const key = dataKeys[i] || "";
-      const field = context.getFieldName({ model: request.model, field: key });
+      const field = context.getFieldName({
+        model: request.model,
+        field: key,
+      });
 
       // we ignore unknown fields
       if (!field) continue;
@@ -429,7 +430,10 @@ export function generateSurrealQL<T>(
     const dataKeys = Object.keys(data);
     for (let i = 0; i < dataKeys.length; i++) {
       const key = dataKeys[i] || "";
-      const field = context.getFieldName({ model: request.model, field: key });
+      const field = context.getFieldName({
+        model: request.model,
+        field: key,
+      });
       const value = data[key];
       if (i > 0) {
         query.append([`, `]);
@@ -522,18 +526,11 @@ export function generateSurrealQL<T>(
     query.append` START AT ${request.offset}`;
   }
 
-  if (
-    request.method === "deleteMany" ||
-    request.method === "updateMany"
-  ) {
+  if (request.method === "deleteMany" || request.method === "updateMany") {
     query.append` RETURN true).len()`;
   }
 
   return query;
-} catch (error) {
-  console.error(error);
-  throw error;
-}
 }
 
 function joinCamelCase(parts: string[]) {
