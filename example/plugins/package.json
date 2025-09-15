@@ -3,13 +3,13 @@
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
-    "better-auth": "^1.3.4"
+    "better-auth": "^1.3.9"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@surrealdb/node": "^1.0.0-beta.3",
-    "better-auth-surrealdb": ".."
+    "better-auth-surrealdb": "../../"
   }
 }

@@ -1,7 +1,7 @@
 import { inspect } from "node:util";
 import { surrealdbNodeEngines } from "@surrealdb/node";
 import { betterAuth } from "better-auth";
-import { surrealAdapter } from "../src";
+import { surrealAdapter } from "../../src";
 
 export const auth = betterAuth({
   appName: "SurrealDB Adapter Test",
