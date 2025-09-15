@@ -84,6 +84,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
+        console.log(new TextDecoder().decode(query.query.encoded))
         const [result] = await db.query<number[]>(query);
         return result || 0;
       },
@@ -348,6 +349,8 @@ export function generateSurrealQL<T>(
   request: AdapterRequestParams<T>,
   context: AdapterContext,
 ) {
+  try {
+
   const query = surql``;
   const where = [] as CleanedWhere[];
   const ids = [] as RecordId[];
@@ -519,9 +522,7 @@ export function generateSurrealQL<T>(
     query.append` START AT ${request.offset}`;
   }
 
-  if (request.method === "count") {
-    query.append` GROUP ALL`;
-  } else if (
+  if (
     request.method === "deleteMany" ||
     request.method === "updateMany"
   ) {
@@ -529,6 +530,10 @@ export function generateSurrealQL<T>(
   }
 
   return query;
+} catch (error) {
+  console.error(error);
+  throw error;
+}
 }
 
 function joinCamelCase(parts: string[]) {
