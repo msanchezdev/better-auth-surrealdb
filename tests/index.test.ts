@@ -1,6 +1,6 @@
 import { surrealdbNodeEngines } from "@surrealdb/node";
 import { runAdapterTest } from "better-auth/adapters/test";
-import { describe, expect, test } from "vitest";
+import { describe } from "vitest";
 import { surrealAdapter } from "../src";
 
 describe("SurrealDB Adapter", async () => {

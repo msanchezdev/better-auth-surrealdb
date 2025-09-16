@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import {
   type AdapterDebugLogs,
   type CleanedWhere,
@@ -16,7 +15,6 @@ import Surreal, {
   surql,
   Table,
 } from "surrealdb";
-import { assert } from "vitest";
 
 interface SurrealAdapterOptions extends ConnectOptions {
   engines?: Engines;
