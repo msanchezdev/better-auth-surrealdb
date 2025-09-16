@@ -19,15 +19,4 @@ describe("SurrealDB Adapter", async () => {
       return adapter(betterAuthOptions);
     },
   });
-
-  describe("count", () => {
-    test("should count the number of records", async () => {
-      const testAdater = adapter({});
-      const count = await testAdater.count({
-        model: "user",
-        where: [],
-      });
-      console.log(count);
-    });
-  });
 });

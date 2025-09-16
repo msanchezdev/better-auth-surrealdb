@@ -377,9 +377,7 @@ export function generateSurrealQL<T>(
   }
 
   const model = ids.length > 0 ? ids : new Table(request.model);
-  if (request.method === "count") {
-    query.append`RETURN (SELECT count() FROM ${model} GROUP ALL).count`;
-  } else if (request.method === "create") {
+  if (request.method === "create") {
     query.append`CREATE ${model} SET `;
 
     const data = request.data as Record<string, unknown>;
@@ -446,6 +444,8 @@ export function generateSurrealQL<T>(
       `SELECT ${request.select.map(escapeIdent).join(", ") || "*"} FROM `,
       model as unknown as string,
     ]);
+  } else if (request.method === "count") {
+    query.append`RETURN (SELECT count() FROM ${model}`;
   } else {
     query.append`SELECT * FROM ${model}`;
   }
@@ -526,7 +526,12 @@ export function generateSurrealQL<T>(
     query.append` START AT ${request.offset}`;
   }
 
-  if (request.method === "deleteMany" || request.method === "updateMany") {
+  if (request.method === "count") {
+    query.append` GROUP ALL).count`;
+  } else if (
+    request.method === "deleteMany" ||
+    request.method === "updateMany"
+  ) {
     query.append` RETURN true).len()`;
   }
 
