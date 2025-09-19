@@ -6,6 +6,7 @@ import {
 } from "better-auth/adapters";
 import { APIError } from "better-auth/api";
 import type { FieldAttribute, FieldType } from "better-auth/db";
+import { inspect } from "node:util";
 import Surreal, {
   type ConnectOptions,
   type Engines,
@@ -82,7 +83,6 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        console.log(new TextDecoder().decode(query.query.encoded));
         const [result] = await db.query<number[]>(query);
         return result || 0;
       },
@@ -453,7 +453,10 @@ export function generateSurrealQL<T>(
     let first = true;
     for (const condition of where) {
       const field = condition.field;
-      const attributes = fixedGetFieldAttributes(context, request.model, field);
+      const attributes = context.getFieldAttributes({
+        model: request.model,
+        field,
+      });
       const value = surrealizeValue(condition.value, attributes);
 
       if (first) {
@@ -550,7 +553,8 @@ function surrealizeValue(value: unknown, field: FieldAttribute<FieldType>) {
   // Primitives are already surrealizable, just need to convert simple id values
   // to RecordIds
 
-  if (field.references) {
+  // console.log(value, field);
+  if (field?.references) {
     return new RecordId(field.references.model, value as RecordIdValue);
   }
 
@@ -568,6 +572,8 @@ function surrealizeValue(value: unknown, field: FieldAttribute<FieldType>) {
  * });
  *
  * This is a workaround to get the correct field name.
+ *
+ * PD: Seems to be fixed in v1.3.8
  */
 function fixedGetFieldAttributes(
   context: AdapterContext,

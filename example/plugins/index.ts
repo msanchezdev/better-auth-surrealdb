@@ -1,9 +1,9 @@
 import { inspect } from "node:util";
 import { surrealdbNodeEngines } from "@surrealdb/node";
-import { betterAuth} from "better-auth";
+import { betterAuth } from "better-auth";
 import { surrealAdapter } from "../../src";
-import { admin } from 'better-auth/plugins';
-import { parseCookies } from 'better-auth/cookies';
+import { admin, organization } from "better-auth/plugins";
+import { parseCookies } from "better-auth/cookies";
 
 export const auth = betterAuth({
   appName: "SurrealDB Adapter Test",
@@ -17,9 +17,7 @@ export const auth = betterAuth({
     namespace: "test",
     database: "test",
   }),
-  plugins: [
-    admin(),
-  ]
+  plugins: [admin(), organization()],
 });
 
 if (import.meta.main) {
@@ -32,6 +30,15 @@ if (import.meta.main) {
     },
   });
   console.log("✅ Admin created!");
+
+  const organization = await auth.api.createOrganization({
+    body: {
+      name: "Admin Personal",
+      slug: "personal-admin",
+      userId: admin.user.id,
+    },
+  });
+  console.log("✅ Organization created!");
 
   const email = "user1@test.com";
   const password = "Welc0me123.";
@@ -49,7 +56,7 @@ if (import.meta.main) {
     "📝 User details:",
     inspect(signUp, { colors: true, depth: Infinity }),
   );
-  
+
   console.log("\n🔑 Attempting sign in...");
   const user1 = await auth.api.signInEmail({
     body: {
@@ -66,16 +73,31 @@ if (import.meta.main) {
   const users = await auth.api.listUsers({
     query: {},
     headers: {
-      Cookie: cookies.entries().map(([key, value]) => `${key}=${value}`).toArray().join("; "),
-    }
+      Cookie: cookies
+        .entries()
+        .map(([key, value]) => `${key}=${value}`)
+        .toArray()
+        .join("; "),
+    },
   });
   console.log("✅ List users successful!");
   console.log(users);
+
+  console.log("🔑 Attempting list organizations...");
+  const organizations = await auth.api.listOrganizations({
+    headers: {
+      Cookie: cookies
+        .entries()
+        .map(([key, value]) => `${key}=${value}`)
+        .toArray()
+        .join("; "),
+    },
+  });
+  console.log("✅ List organizations successful!");
+  console.log(organizations);
 
   // console.log(
   //   "🎫 Session details:",
   //   inspect(signIn, { colors: true, depth: Infinity }),
   // );
-
-
 }
