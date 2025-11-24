@@ -1,11 +1,12 @@
 import {
-  type AdapterDebugLogs,
+  type DBAdapterDebugLogOption,
   type CleanedWhere,
   type CreateCustomAdapter,
   createAdapter,
+  createAdapterFactory,
 } from "better-auth/adapters";
 import { APIError } from "better-auth/api";
-import type { FieldAttribute, FieldType } from "better-auth/db";
+import type { DBFieldAttribute, DBFieldType, FieldAttribute, FieldType } from "better-auth/db";
 import {
   type ConnectOptions,
   type Engines,
@@ -20,7 +21,7 @@ import {
 interface SurrealAdapterOptions extends ConnectOptions {
   engines?: Engines;
   endpoint: string;
-  debugLogs?: AdapterDebugLogs;
+  debugLogs?: DBAdapterDebugLogOption;
   usePlural?: boolean;
 }
 
@@ -42,7 +43,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
     return surreal;
   };
 
-  return createAdapter({
+  return createAdapterFactory({
     config: {
       adapterId: "surrealdb",
       debugLogs,
@@ -51,6 +52,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
       supportsDates: true,
       supportsJSON: true,
       supportsNumericIds: false,
+      supportsUUIDs: true,
       customTransformOutput: (props) => {
         if (props.field === "id") {
           return props.data
@@ -466,45 +468,47 @@ export function generateSurrealQL<T>(
       switch (condition.operator) {
         case "eq":
           query.append(`${escapeIdent(field)} = `);
-          query.append(surql`${value}`);
+          query.append`${value}`;
           break;
         case "ne":
           query.append(`${escapeIdent(field)} != `);
-          query.append(surql`${value}`);
+          query.append`${value}`;
           break;
         case "gt":
           query.append(`${escapeIdent(field)} > `);
-          query.append(surql`${value}`);
+          query.append`${value}`;
           break;
         case "gte":
           query.append(`${escapeIdent(field)} >= `);
-          query.append(surql`${value}`);
+          query.append`${value}`;
           break;
         case "lt":
           query.append(`${escapeIdent(field)} < `);
-          query.append(surql`${value}`);
+          query.append`${value}`;
           break;
         case "lte":
           query.append(`${escapeIdent(field)} <= `);
-          query.append(surql`${value}`);
+          query.append`${value}`;
           break;
         case "in":
           query.append(`${escapeIdent(field)} IN `);
-          query.append(surql`${value}`);
+          query.append`${value}`;
+          break;
+        case "not_in":
+          query.append(`${escapeIdent(field)} NOT IN `);
+          query.append`${value}`;
           break;
         case "starts_with":
           query.append(`string::starts_with(${escapeIdent(field)}, `);
-          query.append(surql`${value}`);
-          query.append(`)`);
+          query.append`${value})`;
           break;
         case "ends_with":
           query.append(`string::ends_with(${escapeIdent(field)}, `);
-          query.append(surql`${value}`);
-          query.append(`)`);
+          query.append`${value})`;
           break;
         case "contains":
           query.append(`${escapeIdent(field)} CONTAINS `);
-          query.append(surql`${value}`);
+          query.append`${value}`;
           break;
         default:
           throw new APIError(`Unsupported operator: ${condition.operator}`);
@@ -553,7 +557,7 @@ function joinCamelCase(parts: string[]) {
   return result;
 }
 
-function surrealizeValue(value: unknown, field: FieldAttribute<FieldType>) {
+function surrealizeValue(value: unknown, field: DBFieldAttribute<DBFieldType>) {
   // Primitives are already surrealizable, just need to convert simple id values
   // to RecordIds
 
