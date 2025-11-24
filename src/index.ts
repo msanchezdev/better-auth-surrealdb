@@ -6,13 +6,13 @@ import {
 } from "better-auth/adapters";
 import { APIError } from "better-auth/api";
 import type { FieldAttribute, FieldType } from "better-auth/db";
-import { inspect } from "node:util";
-import Surreal, {
+import {
   type ConnectOptions,
   type Engines,
   escapeIdent,
   RecordId,
   type RecordIdValue,
+  Surreal,
   surql,
   Table,
 } from "surrealdb";
@@ -83,7 +83,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        const [result] = await db.query<number[]>(query);
+        const [result] = await db.query<number[]>(query).collect();
         return result || 0;
       },
       findOne: async <T>({
@@ -101,7 +101,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        const [[result] = []] = await db.query<T[][]>(query);
+        const [[result] = []] = await db.query<T[][]>(query).collect();
         return result || null;
       },
       findMany: async <T>({
@@ -123,7 +123,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        const [result] = await db.query<T[][]>(query);
+        const [result] = await db.query<T[][]>(query).collect();
         return result || [];
       },
       create: async <T extends Record<string, unknown>>({
@@ -141,7 +141,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        const [[result] = []] = await db.query<T[][]>(query);
+        const [[result] = []] = await db.query<T[][]>(query).collect();
         if (!result) {
           throw new Error("Failed to create record");
         }
@@ -162,7 +162,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        const [[result] = []] = await db.query<T[][]>(query);
+        const [[result] = []] = await db.query<T[][]>(query).collect();
         return result || null;
       },
       updateMany: async ({
@@ -180,7 +180,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        const [result] = await db.query<number[]>(query);
+        const [result] = await db.query<number[]>(query).collect();
         return result || 0;
       },
       delete: async <T>({ model, where }: Omit<DeleteParams, "method">) => {
@@ -193,7 +193,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        await db.query<T[][]>(query);
+        await db.query<T[][]>(query).collect();
       },
       deleteMany: async ({ model, where }) => {
         const db = await ensureConnection();
@@ -205,7 +205,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
           },
           context,
         );
-        const [result] = await db.query<number[]>(query);
+        const [result] = await db.query<number[]>(query).collect();
         return result || 0;
       },
       createSchema: async ({ tables, file }) => {
@@ -237,6 +237,7 @@ export function surrealAdapter(options?: SurrealAdapterOptions) {
                 date: "datetime",
                 "number[]": "array<number>",
                 "string[]": "array<string>",
+                json: "any",
               } as Record<typeof field.type & string, string>
             )[field.type];
 
@@ -397,16 +398,15 @@ export function generateSurrealQL<T>(
       const value = request.data[key];
 
       if (i > 0) {
-        query.append([`, `]);
+        query.append(", ");
       }
 
       if (attributes?.references) {
-        query.append(
-          [`${escapeIdent(field)} = `],
-          new RecordId(attributes.references.model, value as string),
-        );
+        query.append(`${escapeIdent(field)} = `);
+        query.append`${new RecordId(attributes.references.model, value as string)}`;
       } else {
-        query.append([`${escapeIdent(field)} = `], value);
+        query.append(`${escapeIdent(field)} = `);
+        query.append`${value}`;
       }
     }
   } else if (request.method === "delete" || request.method === "deleteMany") {
@@ -432,16 +432,14 @@ export function generateSurrealQL<T>(
       });
       const value = data[key];
       if (i > 0) {
-        query.append([`, `]);
+        query.append`, `;
       }
 
-      query.append([`${escapeIdent(field)} = `], value);
+      query.append(`${escapeIdent(field)} = `);
+      query.append`${value}`;
     }
   } else if ("select" in request && request.select) {
-    query.append([
-      `SELECT ${request.select.map(escapeIdent).join(", ") || "*"} FROM `,
-      model as unknown as string,
-    ]);
+    query.append`SELECT type::fields(${request.select}) FROM ${model}`;
   } else if (request.method === "count") {
     query.append`RETURN (SELECT count() FROM ${model}`;
   } else {
@@ -462,45 +460,51 @@ export function generateSurrealQL<T>(
       if (first) {
         first = false;
       } else {
-        query.append([` ${condition.connector} `]);
+        query.append(` ${condition.connector} `);
       }
 
       switch (condition.operator) {
         case "eq":
-          query.append([`${escapeIdent(field)} = `], value);
+          query.append(`${escapeIdent(field)} = `);
+          query.append(surql`${value}`);
           break;
         case "ne":
-          query.append([`${escapeIdent(field)} != `], value);
+          query.append(`${escapeIdent(field)} != `);
+          query.append(surql`${value}`);
           break;
         case "gt":
-          query.append([`${escapeIdent(field)} > `], value);
+          query.append(`${escapeIdent(field)} > `);
+          query.append(surql`${value}`);
           break;
         case "gte":
-          query.append([`${escapeIdent(field)} >= `], value);
+          query.append(`${escapeIdent(field)} >= `);
+          query.append(surql`${value}`);
           break;
         case "lt":
-          query.append([`${escapeIdent(field)} < `], value);
+          query.append(`${escapeIdent(field)} < `);
+          query.append(surql`${value}`);
           break;
         case "lte":
-          query.append([`${escapeIdent(field)} <= `], value);
+          query.append(`${escapeIdent(field)} <= `);
+          query.append(surql`${value}`);
           break;
         case "in":
-          query.append([`${escapeIdent(field)} IN `], value);
+          query.append(`${escapeIdent(field)} IN `);
+          query.append(surql`${value}`);
           break;
         case "starts_with":
-          query.append(
-            [`string::starts_with(${escapeIdent(field)}, `, ")"],
-            value,
-          );
+          query.append(`string::starts_with(${escapeIdent(field)}, `);
+          query.append(surql`${value}`);
+          query.append(`)`);
           break;
         case "ends_with":
-          query.append(
-            [`string::ends_with(${escapeIdent(field)}, `, ")"],
-            value,
-          );
+          query.append(`string::ends_with(${escapeIdent(field)}, `);
+          query.append(surql`${value}`);
+          query.append(`)`);
           break;
         case "contains":
-          query.append([`${escapeIdent(field)} CONTAINS `], value);
+          query.append(`${escapeIdent(field)} CONTAINS `);
+          query.append(surql`${value}`);
           break;
         default:
           throw new APIError(`Unsupported operator: ${condition.operator}`);
@@ -514,9 +518,9 @@ export function generateSurrealQL<T>(
       field: request.sortBy.field,
     });
 
-    query.append([
+    query.append(
       ` ORDER BY ${escapeIdent(field)} ${request.sortBy.direction === "asc" ? "ASC" : "DESC"}`,
-    ]);
+    );
   }
 
   if ("limit" in request && request.limit) {
@@ -559,33 +563,4 @@ function surrealizeValue(value: unknown, field: FieldAttribute<FieldType>) {
   }
 
   return value;
-}
-
-/**
- * There seems to be a bug in the getDefaultFieldName method (used by
- *  getFieldAttributes) where it returns the custom field name instead of
- *  the default field name.
- *
- * const attributes = context.getFieldAttributes({
- *   model: request.model,
- *   field: condition.field,
- * });
- *
- * This is a workaround to get the correct field name.
- *
- * PD: Seems to be fixed in v1.3.8
- */
-function fixedGetFieldAttributes(
-  context: AdapterContext,
-  model: string,
-  field: string,
-) {
-  const defaultModelName = context.getDefaultModelName(model);
-  const entry = Object.entries(
-    context.schema[defaultModelName]?.fields || {},
-  ).find(([, value]) => value.fieldName === field);
-
-  // This is not right but just to match the types of the getFieldAttributes method.
-  // biome-ignore lint/style/noNonNullAssertion: /\
-  return entry?.[1]!;
 }

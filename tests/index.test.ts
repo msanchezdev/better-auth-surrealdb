@@ -1,4 +1,4 @@
-import { surrealdbNodeEngines } from "@surrealdb/node";
+import { createNodeEngines } from "@surrealdb/node";
 import { runAdapterTest } from "better-auth/adapters/test";
 import { describe } from "vitest";
 import { surrealAdapter } from "../src";
@@ -8,7 +8,7 @@ describe("SurrealDB Adapter", async () => {
     endpoint: "mem://",
     namespace: "test",
     database: "test",
-    engines: surrealdbNodeEngines(),
+    engines: createNodeEngines(),
     debugLogs: {
       isRunningAdapterTests: true,
     },

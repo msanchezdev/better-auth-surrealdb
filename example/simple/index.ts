@@ -1,5 +1,5 @@
 import { inspect } from "node:util";
-import { surrealdbNodeEngines } from "@surrealdb/node";
+import { createNodeEngines } from "@surrealdb/node";
 import { betterAuth } from "better-auth";
 import { surrealAdapter } from "../../src";
 
@@ -10,7 +10,7 @@ export const auth = betterAuth({
   },
   database: surrealAdapter({
     debugLogs: true,
-    engines: surrealdbNodeEngines(),
+    engines: createNodeEngines(),
     endpoint: "mem://",
     namespace: "test",
     database: "test",

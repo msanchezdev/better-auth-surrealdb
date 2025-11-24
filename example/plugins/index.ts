@@ -1,9 +1,9 @@
 import { inspect } from "node:util";
-import { surrealdbNodeEngines } from "@surrealdb/node";
+import { createNodeEngines } from "@surrealdb/node";
 import { betterAuth } from "better-auth";
-import { surrealAdapter } from "../../src";
-import { admin, organization } from "better-auth/plugins";
 import { parseCookies } from "better-auth/cookies";
+import { admin, organization } from "better-auth/plugins";
+import { surrealAdapter } from "../../src";
 
 export const auth = betterAuth({
   appName: "SurrealDB Adapter Test",
@@ -12,7 +12,7 @@ export const auth = betterAuth({
   },
   database: surrealAdapter({
     debugLogs: true,
-    engines: surrealdbNodeEngines(),
+    engines: createNodeEngines(),
     endpoint: "mem://",
     namespace: "test",
     database: "test",
@@ -31,7 +31,7 @@ if (import.meta.main) {
   });
   console.log("✅ Admin created!");
 
-  const organization = await auth.api.createOrganization({
+  const _organization = await auth.api.createOrganization({
     body: {
       name: "Admin Personal",
       slug: "personal-admin",
